@@ -22,6 +22,10 @@ db = Redis(
     port=REDISPORT,
     password=REDISPASSWORD,
     decode_responses=True,
+    socket_timeout=10,  
+    socket_connect_timeout=10,  
+    retry_on_timeout=True,  
+    max_connections=10  
 )
 
 # connecting the client

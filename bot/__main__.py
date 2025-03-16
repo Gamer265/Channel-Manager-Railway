@@ -319,33 +319,38 @@ async def bulk_add_users_handler(event):
     if event.sender_id not in ADMINS:
         return await event.reply("❌ You are not authorized to use this command.")
 
-    await event.reply("📤 Upload the user ID text file...")
+    await event.reply("📤 Please upload the user ID text file...")
 
-    # Wait for the user to send a file
-    response = await client.wait_for(events.NewMessage(incoming=True, from_users=event.sender_id))
+    # Wait for the next document message from the same user
+    @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+    async def file_handler(response):
+        if not response.document:
+            return await event.reply("❌ Please upload a valid text file.")
 
-    # Check if it's a document
-    if not response.document:
-        return await event.reply("❌ Please upload a valid text file.")
+        # Download the file
+        file_path = await response.download_media()
 
-    # Download the file
-    file_path = await response.download_media()
+        # Read user IDs from file
+        with open(file_path, "r") as f:
+            user_ids = [line.strip() for line in f.readlines()]
 
-    # Read user IDs from file
-    with open(file_path, "r") as f:
-        user_ids = [line.strip() for line in f.readlines()]
+        # Fetch existing users to avoid duplicates
+        existing_users = await get_users()
 
-    # Fetch existing users to avoid duplicates
-    existing_users = await get_users()
-    
-    added_count = 0
-    for user_id in user_ids:
-        if user_id.isdigit() and user_id not in existing_users:
-            await add_user(int(user_id))
-            added_count += 1
-        await asyncio.sleep(0.01)  # Prevent Redis timeout
+        added_count = 0
+        for user_id in user_ids:
+            if user_id.isdigit() and user_id not in existing_users:
+                await add_user(int(user_id))
+                added_count += 1
+            await asyncio.sleep(0.01)  # Prevent Redis timeout
 
-    await event.reply(f"✅ Successfully added {added_count} users to the database.")
+        await event.reply(f"✅ Successfully added {added_count} users to the database.")
+
+        # Unregister the handler after processing
+        client.remove_event_handler(file_handler)
+
+    # Register the event handler
+    client.add_event_handler(file_handler, events.NewMessage(incoming=True, from_users=event.sender_id))
 
 
 client.run_until_disconnected()

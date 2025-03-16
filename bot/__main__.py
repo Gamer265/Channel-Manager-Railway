@@ -314,43 +314,68 @@ async def approver(event):
             HideChatJoinRequestRequest(approved=True, peer=chat, user_id=event.user_id)
         )
 
+import asyncio
+import ast
+from telethon import events
+
 @client.on(events.NewMessage(incoming=True, pattern="/bulk_add_users"))
 async def bulk_add_users_handler(event):
     if event.sender_id not in ADMINS:
         return await event.reply("❌ You are not authorized to use this command.")
 
-    await event.reply("📤 Please upload the user ID text file...")
+    await event.reply("📤 Please upload the text file containing the user IDs (e.g., [7544635190, 692994109, ...]).")
 
-    # Wait for the next document message from the same user
     @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
     async def file_handler(response):
         if not response.document:
-            return await event.reply("❌ Please upload a valid text file.")
+            await event.reply("❌ Please upload a valid text file.")
+            client.remove_event_handler(file_handler)
+            return
 
-        # Download the file
         file_path = await response.download_media()
 
-        # Read user IDs from file
-        with open(file_path, "r") as f:
-            user_ids = [line.strip() for line in f.readlines()]
+        try:
+            with open(file_path, "r") as f:
+                data = f.read().strip()
+            # Use ast.literal_eval to parse the file content into a Python list
+            user_ids = ast.literal_eval(data)
+            if not isinstance(user_ids, list):
+                raise ValueError("The file does not contain a list.")
+        except Exception as e:
+            await event.reply(f"❌ Error parsing file: {e}")
+            client.remove_event_handler(file_handler)
+            return
 
-        # Fetch existing users to avoid duplicates
+        # Debug: Show parsed count
+        await event.reply(f"Parsed {len(user_ids)} user IDs from the file.")
+
+        # Get existing users from the database
         existing_users = await get_users()
+        await event.reply(f"There are currently {len(existing_users)} users in the database.")
 
         added_count = 0
-        for user_id in user_ids:
-            if user_id.isdigit() and user_id not in existing_users:
-                await add_user(int(user_id))
-                added_count += 1
-            await asyncio.sleep(0.01)  # Prevent Redis timeout
+        for uid in user_ids:
+            try:
+                # Ensure uid is an integer
+                if isinstance(uid, int):
+                    user_id = uid
+                elif isinstance(uid, str) and uid.isdigit():
+                    user_id = int(uid)
+                else:
+                    continue
+
+                if user_id not in existing_users:
+                    await add_user(user_id)
+                    added_count += 1
+            except Exception as e:
+                print(f"Error adding user {uid}: {e}")
+            await asyncio.sleep(0.01)
 
         await event.reply(f"✅ Successfully added {added_count} users to the database.")
-
-        # Unregister the handler after processing
         client.remove_event_handler(file_handler)
 
-    # Register the event handler
     client.add_event_handler(file_handler, events.NewMessage(incoming=True, from_users=event.sender_id))
+
 
 
 client.run_until_disconnected()

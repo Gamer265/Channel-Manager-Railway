@@ -323,40 +323,40 @@ async def bulk_add_users_handler(event):
     if event.sender_id not in ADMINS:
         return await event.reply("❌ You are not authorized to use this command.")
 
-    await event.reply("📤 Please upload the text file containing the user IDs (e.g., [7544635190, 692994109, ...]).")
-
-    @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-    async def file_handler(response):
+    # Start a conversation with the admin
+    async with client.conversation(event.sender_id) as conv:
+        await conv.send_message("📤 Please upload the text file containing the user IDs (e.g., [7544635190, 692994109, ...]).")
+        response = await conv.get_response()
+        
+        # Check if the response contains a document
         if not response.document:
-            await event.reply("❌ Please upload a valid text file.")
-            client.remove_event_handler(file_handler)
+            await conv.send_message("❌ Not a valid text file. Please upload a .txt file.")
             return
-
+        
         file_path = await response.download_media()
-
+        
         try:
             with open(file_path, "r") as f:
                 data = f.read().strip()
-            # Use ast.literal_eval to parse the file content into a Python list
+            import ast
+            # Safely evaluate the file content; expects a list like [id1, id2, ...]
             user_ids = ast.literal_eval(data)
             if not isinstance(user_ids, list):
                 raise ValueError("The file does not contain a list.")
         except Exception as e:
-            await event.reply(f"❌ Error parsing file: {e}")
-            client.remove_event_handler(file_handler)
+            await conv.send_message(f"❌ Error parsing file: {e}")
             return
 
-        # Debug: Show parsed count
-        await event.reply(f"Parsed {len(user_ids)} user IDs from the file.")
+        # Debug messages (optional)
+        await conv.send_message(f"Parsed {len(user_ids)} user IDs from the file.")
 
         # Get existing users from the database
         existing_users = await get_users()
-        await event.reply(f"There are currently {len(existing_users)} users in the database.")
+        await conv.send_message(f"There are currently {len(existing_users)} users in the database.")
 
         added_count = 0
         for uid in user_ids:
             try:
-                # Ensure uid is an integer
                 if isinstance(uid, int):
                     user_id = uid
                 elif isinstance(uid, str) and uid.isdigit():
@@ -369,12 +369,10 @@ async def bulk_add_users_handler(event):
                     added_count += 1
             except Exception as e:
                 print(f"Error adding user {uid}: {e}")
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01)  # Prevent overwhelming Redis
 
-        await event.reply(f"✅ Successfully added {added_count} users to the database.")
-        client.remove_event_handler(file_handler)
+        await conv.send_message(f"✅ Successfully added {added_count} users to the database.")
 
-    client.add_event_handler(file_handler, events.NewMessage(incoming=True, from_users=event.sender_id))
 
 
 
